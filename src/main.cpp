@@ -132,6 +132,39 @@ int main(){ ios::sync_with_stdio(false); cin.tie(nullptr);
         else if(cmd=="delete_train"){
             string tid; for(int i=0;i<kvn;i++) if(kvs[i].first=='i') tid=kvs[i].second; TrainRec tr; fstream fs(TRAINS_FILE, ios::in|ios::out|ios::binary); if(!fs){ cout<<-1<<"\n"; continue; } streampos pos = find_train_pos(fs, tid, tr); if(pos==-1){ cout<<-1<<"\n"; continue; } if(tr.released){ cout<<-1<<"\n"; continue; } tr.deleted=true; fs.seekp(pos, ios::beg); fs.write(reinterpret_cast<const char*>(&tr), sizeof(TrainRec)); if(!fs.good()){ cout<<-1<<"\n"; } else { cout<<0<<"\n"; }
         }
+        else if(cmd=="query_ticket"){
+            string S,T,D, pref="time"; for(int i=0;i<kvn;i++){ char k=kvs[i].first; const string &v=kvs[i].second; if(k=='s') S=v; else if(k=='t') T=v; else if(k=='d') D=v; else if(k=='p') pref=v; }
+            int qm,qd; parse_md(D,qm,qd); int q_ord=md_to_ordinal(qm,qd);
+            struct Item{ string tid, from, to; int l_m,l_d,l_hr,l_mi; int a_m,a_d,a_hr,a_mi; int price; int seat; int time_cost; };
+            Item *items=nullptr; int it_sz=0,it_cap=0; auto ensure=[&](int n){ if(it_cap>=n) return; int nc= it_cap? it_cap*2:32; while(nc<n) nc*=2; Item *ni=new Item[nc]; for(int i=0;i<it_sz;i++) ni[i]=items[i]; delete[] items; items=ni; it_cap=nc; };
+            fstream fs(TRAINS_FILE, ios::in|ios::binary); if(fs){ TrainRec tr; while(fs.read(reinterpret_cast<char*>(&tr), sizeof(TrainRec))){ if(tr.deleted || !tr.released) continue; int si=-1, ti=-1; for(int i=0;i<tr.stationNum;i++){ if(S==tr.stations[i]) si=i; if(T==tr.stations[i]) ti=i; }
+                    if(si==-1 || ti==-1 || si>=ti) continue;
+                    long long minutes_to_leave_s=0; for(int i=0;i<si;i++){ minutes_to_leave_s += tr.travel[i]; if(i>0) minutes_to_leave_s += tr.stopover[i-1]; }
+                    if(si>0) minutes_to_leave_s += tr.stopover[si-1];
+                    int day_off = (int)((tr.start_hr*60 + tr.start_mi + minutes_to_leave_s)/ (24*60));
+                    int base_ord = q_ord - day_off; int s_ord = md_to_ordinal(tr.sale_s_m, tr.sale_s_d); int e_ord = md_to_ordinal(tr.sale_e_m, tr.sale_e_d); if(base_ord<s_ord || base_ord>e_ord) continue;
+                    int m=tr.sale_s_m, d=tr.sale_s_d; ordinal_to_md(base_ord, m, d); int hr=tr.start_hr, mi=tr.start_mi; // start at base
+                    // advance to leaving s
+                    add_minutes(m,d,hr,mi, (int)minutes_to_leave_s);
+                    int l_m=m,l_d=d,l_hr=hr,l_mi=mi;
+                    // compute arrival at t
+                    long long travel_between=0; int price=0; for(int i=si;i<ti;i++){ travel_between += tr.travel[i]; price += tr.prices[i]; if(i<ti-1) travel_between += tr.stopover[i]; }
+                    add_minutes(m,d,hr,mi, (int)travel_between);
+                    int a_m=m,a_d=d,a_hr=hr,a_mi=mi;
+                    int time_cost = (int)travel_between;
+                    ensure(it_sz+1); items[it_sz++] = Item{ string(tr.trainID), string(tr.stations[si]), string(tr.stations[ti]), l_m,l_d,l_hr,l_mi, a_m,a_d,a_hr,a_mi, price, tr.seatNum, time_cost };
+                }
+            }
+            // sort
+            auto less_by = [&](const Item &A, const Item &B){ if(pref=="time"){ if(A.time_cost!=B.time_cost) return A.time_cost<B.time_cost; } else { if(A.price!=B.price) return A.price<B.price; } return A.tid < B.tid; };
+            for(int i=1;i<it_sz;i++){ Item key=items[i]; int j=i-1; while(j>=0 && less_by(key, items[j])){ items[j+1]=items[j]; j--; } items[j+1]=key; }
+            cout<<it_sz<<"\n";
+            for(int i=0;i<it_sz;i++){
+                string lmd, lhm, amd, ahm; fmt_md(lmd, items[i].l_m, items[i].l_d); fmt_hm(lhm, items[i].l_hr, items[i].l_mi); fmt_md(amd, items[i].a_m, items[i].a_d); fmt_hm(ahm, items[i].a_hr, items[i].a_mi);
+                cout<<items[i].tid<<" "<<items[i].from<<" "<<lmd<<" "<<lhm<<" -> "<<items[i].to<<" "<<amd<<" "<<ahm<<" "<<items[i].price<<" "<<items[i].seat<<"\n";
+            }
+            delete[] items;
+        }
         else { cout<<-1<<"\n"; }
     }
     return 0;
